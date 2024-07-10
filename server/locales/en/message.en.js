@@ -4,7 +4,7 @@ const messages = {
 	| GENERAL MESSAGES
 	|--------------------------------------------------------------------------
   	*/
-  INTERNAL_SERVER_ERROR: "Internal server error!",
+  USER_REGISTERED_SUCCESSFULLY: "User register Successfully",
 };
 
 module.exports = { messages };

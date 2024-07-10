@@ -1,7 +1,7 @@
 module.exports = {
   Gender: {
-    MALE: "0",
-    FEMALE: "1",
-    OTHERS: "3",
+    MALE: "Male",
+    FEMALE: "female",
+    OTHERS: "others",
   },
 };

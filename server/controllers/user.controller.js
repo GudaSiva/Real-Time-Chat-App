@@ -1,16 +1,182 @@
 "use strict";
-
+const bcrypt = require("bcrypt");
+const { httpResponses } = require("../constants/http-responses.constant");
+const { httpsStatusCodes } = require("../constants/http-status-codes.constant");
 const { successResponse, errorResponse } = require("../utils/responses.util");
+const { User } = require("../models/user.model");
+const { Gender } = require("../constants/user.constant");
+const { jwt_secret_key, token_expires } = require("../configs/jwt.config");
+const jwt = require("jsonwebtoken");
+const { generateHash, compareString } = require("../utils/password.util");
 
 const registerController = async (req, res) => {
   try {
-    return res.json(successResponse("USER_REGISTERED_SUCCESSFULLY"));
-  } catch (error) {
-    console.log(
-      `Some thing went wrong while creating register controller : ${error} `
+    // User required body details
+    const { full_name, user_name, email, password, confirm_password, gender } =
+      req.body;
+    // user password and confirm password should match
+    if (password !== confirm_password) {
+      return res.json(
+        errorResponse(
+          "PASSWORD_AND_CONFIRM_PASSWORD_SHOULD_BE_SAME",
+          httpsStatusCodes.BAD_REQUEST,
+          httpResponses.BAD_REQUEST
+        )
+      );
+    }
+    const passHash = await generateHash(password);
+    // finds if user exists in db
+    const userDetails = await User.findOne({ email });
+    if (userDetails) {
+      if (userDetails.user_name) {
+        return res.json(errorResponse("USER_NAME_ALREADY_EXITS"));
+      }
+      return res.json(
+        errorResponse(
+          "USER ALREADY EXISTS",
+          httpsStatusCodes.ALREADY_EXISTS,
+          httpResponses.NOT_FOUND
+        )
+      );
+    }
+    // default avatar emoji's from google
+    const maleProfileImage = `https://avatar.iran.liara.run/public/boy?username=${user_name}`;
+    const femaleProfileImage = `https://avatar.iran.liara.run/public/girl?username=${user_name}`;
+
+    const userCreate = await User.create({
+      full_name,
+      user_name,
+      email,
+      password: passHash,
+      gender,
+      profile_img:
+        gender === Gender.MALE ? maleProfileImage : femaleProfileImage,
+    });
+    await userCreate.save();
+    const userResponse = {
+      full_name,
+      user_name,
+      email,
+      gender,
+      profile_img:
+        gender === Gender.MALE ? maleProfileImage : femaleProfileImage,
+    };
+    // success response
+    return res.json(
+      successResponse(
+        userResponse,
+        "USER_REGISTERED_SUCCESSFULLY",
+        httpsStatusCodes.CREATED,
+        httpResponses.CREATED
+      )
     );
-    return res.json(errorResponse("SOME_THING_WENT_WRONG_WHILE_REGISTER_API"));
+  } catch (error) {
+    console.log(/error/, error);
+    return res.json(
+      errorResponse(
+        "SOME_THING_WENT_WRONG_WHILE_REGISTER_API",
+        httpsStatusCodes.INTERNAL_SERVER_ERROR,
+        httpResponses.INTERNAL_SERVER_ERROR
+      )
+    );
   }
 };
 
-module.exports = { registerController };
+const getUsers = async (req, res) => {
+  try {
+    const userDetails = await User.find();
+    return res.json(
+      successResponse(
+        userDetails,
+        "USERS_FETCHED_SUCCESSFULLY",
+        httpsStatusCodes.SUCCESS,
+        httpResponses.SUCCESS
+      )
+    );
+  } catch (error) {
+    console.log(/error/, error);
+    return res.json(
+      errorResponse(
+        "SOME_THING_WENT_WRONG_WHILE_FETCHING_USERS",
+        httpsStatusCodes.INTERNAL_SERVER_ERROR,
+        httpResponses.INTERNAL_SERVER_ERROR
+      )
+    );
+  }
+};
+
+const login = async (req, res) => {
+  try {
+    const { user_name, password } = req.body;
+    const user = await User.findOne({ user_name, hidePassword: false });
+    const checkValidPassword = compareString(password, user.password);
+    if (!user && !checkValidPassword) {
+      return res.json(errorResponse("INVALID_USER_NAME_AND_PASSWORD"));
+    }
+    const token = jwt.sign({ _id: user._id }, jwt_secret_key, {
+      expiresIn: token_expires,
+    });
+     // Emit an event to associate the user ID with the socket ID
+   io.emit('user_logged_in', { userId: user._id });
+    const responses = {
+      full_name: user.full_name,
+      user_name: user.user_name,
+      email: user.email,
+      gender: user.gender,
+      profile_img: user.profile_img,
+      user_token: token,
+    };
+    return res.json(
+      successResponse(
+        responses,
+        "USER_SUCCESSFULLY_LOGGED_IN",
+        httpsStatusCodes.SUCCESS,
+        httpResponses.SUCCESS
+      )
+    );
+  } catch (error) {
+    console.log(error);
+    return res.json(
+      errorResponse(
+        "SOME_THING_WENT_WRONG_WHILE_LOGIN",
+        httpsStatusCodes.INTERNAL_SERVER_ERROR,
+        httpResponses.INTERNAL_SERVER_ERROR
+      )
+    );
+  }
+};
+
+const fetchUser = async (req, res) => {
+  const userId = req.params.userId;
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.json(
+        errorResponse(
+          "USER_NOT_FOUND",
+          httpsStatusCodes.NOT_FOUND,
+          httpResponses.NOT_FOUND
+        )
+      );
+    }
+    return res.json(
+      successResponse(
+        user,
+        "USER_FETCHED_SUCCESSFULLY",
+        httpsStatusCodes.SUCCESS,
+        httpResponses.SUCCESS
+      )
+    );
+  } catch (error) {
+    console.log(/error/, error);
+    return res.json(
+      errorResponse(
+        "SOME_THING_WENT_WRONG_WHILE_FETCH_SINGLE_USER",
+        httpsStatusCodes.INTERNAL_SERVER_ERROR,
+        httpResponses.INTERNAL_SERVER_ERROR
+      )
+    );
+  }
+};
+
+module.exports = { registerController, getUsers, login, fetchUser };
