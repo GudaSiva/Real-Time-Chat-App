@@ -1,5 +1,6 @@
 "use strict";
 const bcrypt = require("bcrypt");
+const csv = require("csvtojson");
 const { httpResponses } = require("../constants/http-responses.constant");
 const { httpsStatusCodes } = require("../constants/http-status-codes.constant");
 const { successResponse, errorResponse } = require("../utils/responses.util");
@@ -116,8 +117,8 @@ const login = async (req, res) => {
     const token = jwt.sign({ _id: user._id }, jwt_secret_key, {
       expiresIn: token_expires,
     });
-     // Emit an event to associate the user ID with the socket ID
-   io.emit('user_logged_in', { userId: user._id });
+    // Emit an event to associate the user ID with the socket ID
+    io.emit("user_logged_in", { userId: user._id });
     const responses = {
       full_name: user.full_name,
       user_name: user.user_name,
@@ -179,4 +180,83 @@ const fetchUser = async (req, res) => {
   }
 };
 
-module.exports = { registerController, getUsers, login, fetchUser };
+const importUserData = async (req, res) => {
+  try {
+    const userData = [];
+    const csvData = await csv().fromFile(req.file.path);
+
+    for (let row of csvData) {
+      // Validation
+      if (
+        !row.full_name ||
+        !row.user_name ||
+        !row.email ||
+        !row.password ||
+        !row.gender ||
+        !row.profile_img
+      ) {
+        return res.json(
+          errorResponse(
+            "VALIDATION_ERROR_ALL_FIELDS_ARE_REQUIRED",
+            httpsStatusCodes.BAD_REQUEST,
+            httpResponses.BAD_REQUEST
+          )
+        );
+      }
+
+      // Check for existing user by email or username
+      const existingUser = await User.findOne({
+        $or: [{ email: row.email }, { user_name: row.user_name }],
+      });
+
+      if (!existingUser) {
+        userData.push({
+          full_name: row.full_name,
+          user_name: row.user_name,
+          email: row.email,
+          password: row.password,
+          gender: row.gender,
+          profile_img: row.profile_img,
+        });
+      }
+    }
+
+    if (userData.length > 0) {
+      await User.insertMany(userData);
+      return res.json(
+        successResponse(
+          "",
+          "FILE_IMPORTED_SUCCESSFULLY",
+          httpsStatusCodes.SUCCESS,
+          httpResponses.SUCCESS
+        )
+      );
+    } else {
+      return res.json(
+        successResponse(
+          "",
+          "USERS_ALREADY_EXISTS_THEN_NO_NEW_USERS_TO_IMPORT",
+          httpsStatusCodes.SUCCESS,
+          httpResponses.SUCCESS
+        )
+      );
+    }
+  } catch (error) {
+    console.log("error", error);
+    return res.json(
+      errorResponse(
+        "SOME_THING_WENT_WRONG_WHILE_IMPORTING_FILE",
+        httpsStatusCodes.INTERNAL_SERVER_ERROR,
+        httpResponses.INTERNAL_SERVER_ERROR
+      )
+    );
+  }
+};
+
+module.exports = {
+  registerController,
+  getUsers,
+  login,
+  fetchUser,
+  importUserData,
+};
